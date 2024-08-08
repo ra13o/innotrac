@@ -1,0 +1,41 @@
+<?xml version="1.0"?>
+<robot name="innotrac" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+    <!--Links and Joints only-->
+    <link name="base_link"/>
+
+    <!--base_footprint-->
+    <link name="base_footprint"/>
+    <joint name="base_footprint_joint" type="fixed">
+        <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
+        <parent link="base_link"/>
+        <child link="base_footprint"/>
+    </joint>
+
+    <!--Blickfeld LiDAR link-->
+    <link name="lidar_link"/>
+
+    <joint name="lidar_joint" type="fixed">
+        <origin xyz="0.0 1.3465 1.10" rpy="0.0 0.0 0.0"/>
+        <parent link="base_link"/>
+        <child link="lidar_link"/>
+    </joint>
+
+    <!--Fixposition gps link-->
+    <link name="fixposition_gps"/>
+
+    <joint name="gps_joint" type="fixed">
+        <origin>
+    </joint>
+
+    <!--Front lifter-->
+
+    <!--Middle Lifter-->
+
+    <!--Rear Lifter-->
+
+    <!--Front PTO-->
+
+    <!--Rear PTO-->
+
+</robot>
