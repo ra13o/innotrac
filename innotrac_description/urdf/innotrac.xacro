@@ -16,7 +16,7 @@
     <link name="lidar_link"/>
 
     <joint name="lidar_joint" type="fixed">
-        <origin xyz="0.0 1.3465 1.10" rpy="0.0 0.0 0.0"/>
+        <origin xyz="1.3465 0.0 1.10" rpy="0.0 0.0 0.0"/>
         <parent link="base_link"/>
         <child link="lidar_link"/>
     </joint>
@@ -25,17 +25,63 @@
     <link name="fixposition_gps"/>
 
     <joint name="gps_joint" type="fixed">
-        <origin>
+        <origin xyz="1.3465 0.0 1.20" rpy="0.0 0.0 0.0"/>
+        <parent link="base_link"/>
+        <child link="fixposition_gps">
     </joint>
 
     <!--Front lifter-->
+    <link name="front_lifter"/>
+
+    <joint name="front_lifter_joint" type="prismatic">
+        <origin xyz="2.1265 0.0 0.373" rpy="0.0 0.0 0.0"/>
+        <parent link="base_link"/>
+        <child link="front_lifter"/>
+        <axis xyz="0 0 1"/> <!-- sliding along Z axis -->
+        <limit lower="0.25" upper="0.56" effort="100" velocity="1"/>
+    </joint>
 
     <!--Middle Lifter-->
+    <link name="middle_lifter"/>
+
+    <joint name="middle_lifter_joint" type="fixed">
+        <origin xyz="0.6465 0.0 0.32" rpy="0.0 0.0 0.0"/>
+        <parent link="base_link"/>
+        <child link="middle_lifter"/>
+        <axis xyz="0 0 1"/> <!-- sliding along Z axis -->
+        <limit lower="0.25" upper="0.56" effort="100" velocity="1"/>
+    </joint>
 
     <!--Rear Lifter-->
+    <link name="rear_lifter"/>
+
+    <joint name="rear_lifter_joint" type="fixed">
+        <origin xyz="-2.1265 0.0 0.133" rpy="0.0 0.0 0.0"/>
+        <parent link="base_link"/>
+        <child link="rear_lifter"/>
+        <axis xyz="0 0 1"/> <!-- sliding along Z axis -->
+        <limit lower="0.12" upper="0.647" effort="100" velocity="1"/>
+    </joint>
+
 
     <!--Front PTO-->
+    <link name="front_pto"/>
+
+    <joint name="front_pto_joint" type="continuous">
+        <origin xyz="1.3465 0.0 0.63" rpy="0.0 0.0 0.0"/>
+        <parent link="base_link"/>
+        <child link="front_pto"/>
+        <axis xyz="0 1 0"/> <!--rotation about Y axis-->
+    </joint>
 
     <!--Rear PTO-->
+    <link name="rear_pto"/>
+
+    <joint name="rear_pto_joint" type="continuous">
+        <origin xyz="-1.3465 0.0 0.555" rpy="0.0 0.0 0.0"/>
+        <parent link="base_link"/>
+        <child link="rear_pto"/>
+        <axis xyz="0 1 0"/> <!--rotation about Y axis-->
+    </joint>
 
 </robot>
