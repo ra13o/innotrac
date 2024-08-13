@@ -1,4 +1,4 @@
-#! /usr/bin/env python3
+#!/usr/bin/env python3
 import rclpy
 import math
 from rclpy.node import Node
@@ -32,13 +32,13 @@ class AutonomousControlUnit(Node):
         self.timer = self.create_timer(0.01, self.send_can_messages)  # 100Hz
 
     def check_nsstatus3(self):
-        # This function would read NSStatus3 from the CAN bus and update the current_lifter_heights
-        msg = self.bus.recv()  # Blocking call, replace with timeout for non-blocking
+        # This function reads NSStatus3 from the CAN bus and updates the current_lifter_heights
+        msg = self.bus.recv(timeout=0.1)  # Non-blocking call with timeout
 
-        if msg.arbitration_id == 419:
-            self.current_lifter_heights['front'] = (msg.data[0] << 8) | msg.data[1]
-            self.current_lifter_heights['middle'] = (msg.data[2] << 8) | msg.data[3]
-            self.current_lifter_heights['rear'] = (msg.data[4] << 8) | msg.data[5]
+        if msg and msg.arbitration_id == 419:  # 0x1A3 in decimal
+            self.current_lifter_heights['front'] = (msg.data[1] << 8) | msg.data[0]
+            self.current_lifter_heights['middle'] = (msg.data[3] << 8) | msg.data[2]
+            self.current_lifter_heights['rear'] = (msg.data[5] << 8) | msg.data[4]
             self.get_logger().info(f"Current lifter heights - Front: {self.current_lifter_heights['front']}, Middle: {self.current_lifter_heights['middle']}, Rear: {self.current_lifter_heights['rear']}")
 
     def cmd_vel_callback(self, msg):
@@ -76,47 +76,38 @@ class AutonomousControlUnit(Node):
 
     def send_nscmd1(self, msg):
         # Process the /cmd_vel message and send NSCmd1
-        steer_angle = int(msg.angular.z * 100 * (180 / math.pi))  # Convert to centidegrees
-        velocity = int(msg.linear.x * 360)  # Convert velocity for transmission
-        engine_speed = int(msg.linear.y * 100)  # Assuming engine speed
-
-        can_bits = [0] * 64
-
-        if steer_angle > 0.0:
-            can_bits[48] = 1  # Steer left
-        elif steer_angle < 0.0:
-            can_bits[49] = 1  # Steer right
-
-        if velocity > 0.0:
-            can_bits[50] = 1  # Drive forward
-        elif velocity < 0.0:
-            can_bits[51] = 1  # Drive backward
-
-        # Packing the steering angle, velocity, and engine speed into the CAN data
-        cast_steering_angle = abs(int(steer_angle))
-        cast_velocity = abs(int(velocity))
-        cast_engine_speed = abs(int(engine_speed))
-
-        for i in range(16):
-            if pow(2, 15 - i) <= cast_steering_angle:
-                can_bits[15 - i] = 1
-                cast_steering_angle -= pow(2, 15 - i)
-            if pow(2, 15 - i) <= cast_velocity:
-                can_bits[31 - i] = 1
-                cast_velocity -= pow(2, 15 - i)
-            if pow(2, 15 - i) <= cast_engine_speed:
-                can_bits[47 - i] = 1
-                cast_engine_speed -= pow(2, 15 - i)
+        steer_angle = int(msg.angular.z * 100)  # Convert to centidegrees, multiplied by 100
+        velocity = int(msg.linear.x * 100)  # Convert velocity, multiplied by 100
+        engine_speed = 65535  # Engine speed is always set to max (0xFFFF)
 
         can_data = [0] * 8
-        for i in range(8):
-            byte = 0
-            for j in range(8):
-                byte += can_bits[8 * i + j] * pow(2, j)
-            can_data[i] = byte
 
+        # SteerAngleMagnReq (Bits 0-15)
+        can_data[0] = steer_angle & 0xFF  # LSB
+        can_data[1] = (steer_angle >> 8) & 0xFF  # MSB
+
+        # DrvSpdMagnReq (Bits 16-31)
+        can_data[2] = velocity & 0xFF  # LSB
+        can_data[3] = (velocity >> 8) & 0xFF  # MSB
+
+        # EngSpdReq (Bits 32-47)
+        can_data[4] = engine_speed & 0xFF  # LSB
+        can_data[5] = (engine_speed >> 8) & 0xFF  # MSB
+
+        # Control Bits (Bits 48-55)
+        if steer_angle > 0:
+            can_data[6] |= (1 << 0)  # SteerDirLeReq (bit 48)
+        elif steer_angle < 0:
+            can_data[6] |= (1 << 1)  # SteerDirRiReq (bit 49)
+
+        if velocity > 0:
+            can_data[6] |= (1 << 2)  # DrvDirFwdReq (bit 50)
+        elif velocity < 0:
+            can_data[6] |= (1 << 3)  # DrvDirBwdReq (bit 51)
+
+        # Prepare and send the CAN message
         can_msg = can.Message(
-            arbitration_id=401,
+            arbitration_id=401,  # 0x191 in decimal
             data=can_data,
             is_extended_id=False
         )
@@ -127,7 +118,7 @@ class AutonomousControlUnit(Node):
     def send_trigger(self):
         # Send trigger message for /cmd_vel
         trigger_msg = can.Message(
-            arbitration_id=257,
+            arbitration_id=257,  # 0x101 in decimal
             data=[7],  # Data for triggering
             is_extended_id=False
         )
