@@ -35,7 +35,7 @@ class AutonomousControlUnit(Node):
         # This function would read NSStatus3 from the CAN bus and update the current_lifter_heights
         msg = self.bus.recv()  # Blocking call, replace with timeout for non-blocking
 
-        if msg.arbitration_id == 0x1a3:
+        if msg.arbitration_id == 419:
             self.current_lifter_heights['front'] = (msg.data[0] << 8) | msg.data[1]
             self.current_lifter_heights['middle'] = (msg.data[2] << 8) | msg.data[3]
             self.current_lifter_heights['rear'] = (msg.data[4] << 8) | msg.data[5]
@@ -66,11 +66,12 @@ class AutonomousControlUnit(Node):
     def send_can_messages(self):
         # Check and send NSCmd1 (cmd_vel related)
         if self.message_received:
-            self.send_nscmd1(self.current_cmd_vel)
             self.send_trigger()
+            self.send_nscmd1(self.current_cmd_vel)
             self.message_received = False
 
         # Check and send NSCmd2 (lifter status related)
+        self.send_trigger()
         self.send_nscmd2()
 
     def send_nscmd1(self, msg):
@@ -115,7 +116,7 @@ class AutonomousControlUnit(Node):
             can_data[i] = byte
 
         can_msg = can.Message(
-            arbitration_id=0x191,
+            arbitration_id=401,
             data=can_data,
             is_extended_id=False
         )
@@ -126,7 +127,7 @@ class AutonomousControlUnit(Node):
     def send_trigger(self):
         # Send trigger message for /cmd_vel
         trigger_msg = can.Message(
-            arbitration_id=0x191,  # Use appropriate ID for triggering
+            arbitration_id=257,
             data=[7],  # Data for triggering
             is_extended_id=False
         )
@@ -146,7 +147,7 @@ class AutonomousControlUnit(Node):
         # Fault requests based on the active lifter
         can_data[6] = (self.front_req << 2) | (self.middle_req << 1) | self.rear_req
 
-        can_msg = can.Message(arbitration_id=0x192, data=can_data, is_extended_id=False)
+        can_msg = can.Message(arbitration_id=402, data=can_data, is_extended_id=False)
         self.bus.send(can_msg)
         self.get_logger().info(f"NSCmd2 sent: {can_data}")
 
