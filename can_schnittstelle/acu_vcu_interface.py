@@ -25,8 +25,10 @@ class AutonomousControlUnit(Node):
             'rear': 0
         }
         
-        # Message received flag for /cmd_vel trigger
-        self.message_received = False
+        # Lifter activation states
+        self.front_req = 0
+        self.middle_req = 0
+        self.rear_req = 0
         
         # Timer to send messages at 100Hz
         self.timer = self.create_timer(0.01, self.send_can_messages)  # 100Hz
@@ -52,33 +54,55 @@ class AutonomousControlUnit(Node):
         height = int(msg.height)
         lifter_active = 1 if msg.lifter_active else 0
 
-        # Map lifter names to the corresponding indices in the CAN message
+        # Trigger autonomous mode
+        self.send_trigger(7)
+
+        # Check and update current lifter heights
+        self.check_nsstatus3()
+
+        # Send initial lifter height
         if lifter_name == "front":
-            self.current_lifter_heights['front'] = height
+            self.send_nscmd2(height, 0, 0)
             self.front_req = lifter_active
         elif lifter_name == "middle":
-            self.current_lifter_heights['middle'] = height
+            self.send_nscmd2(self.current_lifter_heights['front'], height, self.current_lifter_heights['rear'])
             self.middle_req = lifter_active
         elif lifter_name == "rear":
-            self.current_lifter_heights['rear'] = height
+            self.send_nscmd2(self.current_lifter_heights['front'], self.current_lifter_heights['middle'], height)
             self.rear_req = lifter_active
 
+        # Send the goal height and activation
+        self.send_nscmd2()
+        
+        # Activate rear PTO if necessary
+        if lifter_name in ["middle", "rear"]:
+            self.send_nscmd1_with_rear_pto()
+
+        # Revert to SCmd1(0)
+        self.send_trigger(0)
+
     def send_can_messages(self):
-        # Check and send NSCmd1 (cmd_vel related)
+        # Always send SCmd1(0) unless triggered by a received message
+        if not self.message_received:
+            self.send_trigger(0)
+
+        # Send command messages when new data is received
         if self.message_received:
-            self.send_trigger()
+            self.send_trigger(7)
             self.send_nscmd1(self.current_cmd_vel)
             self.message_received = False
+            self.send_trigger(0)
 
-        # Check and send NSCmd2 (lifter status related)
-        self.send_trigger()
-        self.send_nscmd2()
+    def send_nscmd1(self, msg=None):
+        # Send NSCmd1 with the engine speed always set to maximum
+        steer_angle = 0
+        velocity = 0
 
-    def send_nscmd1(self, msg):
-        # Process the /cmd_vel message and send NSCmd1
-        steer_angle = int(msg.angular.z * 100)  # Convert to centidegrees, multiplied by 100
-        velocity = int(msg.linear.x * 100)  # Convert velocity, multiplied by 100
-        engine_speed = 65535  # Engine speed is always set to max (0xFFFF)
+        if msg:
+            steer_angle = int(msg.angular.z * 100)  # Convert to centidegrees
+            velocity = int(msg.linear.x * 100)  # Convert to required format
+
+        engine_speed = 65535  # Always max engine speed
 
         can_data = [0] * 8
 
@@ -94,40 +118,59 @@ class AutonomousControlUnit(Node):
         can_data[4] = engine_speed & 0xFF  # LSB
         can_data[5] = (engine_speed >> 8) & 0xFF  # MSB
 
-        # Control Bits (Bits 48-55)
-        if steer_angle > 0:
-            can_data[6] |= (1 << 0)  # SteerDirLeReq (bit 48)
-        elif steer_angle < 0:
-            can_data[6] |= (1 << 1)  # SteerDirRiReq (bit 49)
+        # PTO Control (Bits 48-55)
+        can_data[6] = (self.front_req << 2) | (self.middle_req << 1) | self.rear_req
 
-        if velocity > 0:
-            can_data[6] |= (1 << 2)  # DrvDirFwdReq (bit 50)
-        elif velocity < 0:
-            can_data[6] |= (1 << 3)  # DrvDirBwdReq (bit 51)
-
-        # Prepare and send the CAN message
+        # Send the CAN message
         can_msg = can.Message(
             arbitration_id=401,  # 0x191 in decimal
             data=can_data,
             is_extended_id=False
         )
-
         self.bus.send(can_msg)
         self.get_logger().info(f"NSCmd1 sent: {can_data}")
 
-    def send_trigger(self):
-        # Send trigger message for /cmd_vel
+    def send_nscmd1_with_rear_pto(self):
+        # Send NSCmd1 specifically to activate rear PTO
+        can_data = [0] * 8
+        engine_speed = 65535  # Always max engine speed
+
+        # EngSpdReq (Bits 32-47)
+        can_data[4] = engine_speed & 0xFF  # LSB
+        can_data[5] = (engine_speed >> 8) & 0xFF  # MSB
+
+        # Rear PTO activation
+        can_data[6] = (1 << 1)  # RearPtoReq
+
+        can_msg = can.Message(
+            arbitration_id=401,  # 0x191 in decimal
+            data=can_data,
+            is_extended_id=False
+        )
+        self.bus.send(can_msg)
+        self.get_logger().info(f"NSCmd1 (Rear PTO) sent: {can_data}")
+
+    def send_trigger(self, value=0):
+        # Send SCmd1 with the specified value
         trigger_msg = can.Message(
             arbitration_id=257,  # 0x101 in decimal
-            data=[7],  # Data for triggering
+            data=[value],  # Data for triggering
             is_extended_id=False
         )
         self.bus.send(trigger_msg)
-        self.get_logger().info(f"Trigger message sent: {trigger_msg.data}")
+        self.get_logger().info(f"SCmd1 sent: {value}")
 
-    def send_nscmd2(self):
-        # Process and send NSCmd2 based on current lifter heights and active states
+    def send_nscmd2(self, front_height=None, middle_height=None, rear_height=None):
+        # Process and send NSCmd2 based on lifter status
         can_data = [0] * 8
+
+        if front_height is not None:
+            self.current_lifter_heights['front'] = front_height
+        if middle_height is not None:
+            self.current_lifter_heights['middle'] = middle_height
+        if rear_height is not None:
+            self.current_lifter_heights['rear'] = rear_height
+
         can_data[0] = (self.current_lifter_heights['front'] >> 8) & 0xFF
         can_data[1] = self.current_lifter_heights['front'] & 0xFF
         can_data[2] = (self.current_lifter_heights['middle'] >> 8) & 0xFF
@@ -151,3 +194,4 @@ def main(args=None):
 
 if __name__ == '__main__':
     main()
+
