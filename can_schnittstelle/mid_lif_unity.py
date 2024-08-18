@@ -20,7 +20,7 @@ class MiddleLifterUnit(Node):
         self.current_lifter_height = {'middle': 0}
 
         # Timer to check the status
-        self.status_check_timer = self.create_timer(0.01, self.check_nsstatus)
+        #self.status_check_timer = self.create_timer(0.01, self.check_nsstatus)
 
         # Request status for lifters
         self.front_req = 0
@@ -30,32 +30,32 @@ class MiddleLifterUnit(Node):
         # 100Hz Frequency 
         self.timer = self.create_timer(0.01, self.send_can_messages)
 
-    def check_nsstatus(self):
-        # Read NSStatus from CAN Bus and update relevant parameters
-        msg = self.bus.recv(timeout=0.1)
+    # def check_nsstatus(self):
+    #     # Read NSStatus from CAN Bus and update relevant parameters
+    #     msg = self.bus.recv(timeout=0.1)
 
-        if msg and msg.arbitration_id == 419:  # 0x1A3 in hexadecimal is 419 in decimal
-            # FrontPowLiftHgt - Bits 0-15
-            front_pow_lift_hgt = (msg.data[1] << 8) | msg.data[0]
+    #     if msg and msg.arbitration_id == 419:  # 0x1A3 in hexadecimal is 419 in decimal
+    #         # FrontPowLiftHgt - Bits 0-15
+    #         front_pow_lift_hgt = (msg.data[1] << 8) | msg.data[0]
 
-            # MidPowLiftHgt - Bits 16-31
-            mid_pow_lift_hgt = (msg.data[3] << 8) | msg.data[2]
+    #         # MidPowLiftHgt - Bits 16-31
+    #         mid_pow_lift_hgt = (msg.data[3] << 8) | msg.data[2]
 
-            # RearPowLiftHgt - Bits 32-47
-            rear_pow_lift_hgt = (msg.data[5] << 8) | msg.data[4]
+    #         # RearPowLiftHgt - Bits 32-47
+    #         rear_pow_lift_hgt = (msg.data[5] << 8) | msg.data[4]
 
-            # EngSpd - Bits 48-63
-            eng_spd = (msg.data[7] << 8) | msg.data[6]
+    #         # EngSpd - Bits 48-63
+    #         eng_spd = (msg.data[7] << 8) | msg.data[6]
 
-            # Store or process the values as needed
-            self.current_lifter_height['front'] = front_pow_lift_hgt
-            self.current_lifter_height['middle'] = mid_pow_lift_hgt
-            self.current_lifter_height['rear'] = rear_pow_lift_hgt
+    #         # Store or process the values as needed
+    #         self.current_lifter_height['front'] = front_pow_lift_hgt
+    #         self.current_lifter_height['middle'] = mid_pow_lift_hgt
+    #         self.current_lifter_height['rear'] = rear_pow_lift_hgt
 
-            # Log the extracted values
-            self.get_logger().info(f"NSStatus3 - FrontPowLiftHgt: {front_pow_lift_hgt}, MidPowLiftHgt: {mid_pow_lift_hgt}, RearPowLiftHgt: {rear_pow_lift_hgt}, EngSpd: {eng_spd}")
-        else:
-            self.get_logger().info(f"Ignored CAN message with ID: {msg.arbitration_id}, Data: {msg.data}")
+    #         # Log the extracted values
+    #         self.get_logger().info(f"NSStatus3 - FrontPowLiftHgt: {front_pow_lift_hgt}, MidPowLiftHgt: {mid_pow_lift_hgt}, RearPowLiftHgt: {rear_pow_lift_hgt}, EngSpd: {eng_spd}")
+    #     else:
+    #         self.get_logger().info(f"Ignored CAN message with ID: {msg.arbitration_id}, Data: {msg.data}")
 
     def lifter_status_callback(self, msg):
         self.get_logger().info(f"Received message: {msg}")
@@ -70,19 +70,19 @@ class MiddleLifterUnit(Node):
             self.get_logger().info(f"Updated Lifter Height: {height}, Lifter Active: {lifter_active}")
 
     def send_can_messages(self):
-        self.send_trigger()
+        #self.send_trigger()
         self.send_nscmd2()
 
-    def send_trigger(self):
-        # Trigger message for all messages
-        trigger_msg = can.Message(
-            arbitration_id=257,  # 0x101 in hexadecimal
-            data=[7], 
-            is_extended_id=False
-        )
+    # def send_trigger(self):
+    #     # Trigger message for all messages
+    #     trigger_msg = can.Message(
+    #         arbitration_id=257,  # 0x101 in hexadecimal
+    #         data=[7], 
+    #         is_extended_id=False
+    #     )
 
-        self.bus.send(trigger_msg)
-        self.get_logger().info(f"Trigger Message sent: {trigger_msg.data}")
+    #     self.bus.send(trigger_msg)
+    #     self.get_logger().info(f"Trigger Message sent: {trigger_msg.data}")
 
     def send_nscmd2(self):
         can_data = [0] * 8
