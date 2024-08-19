@@ -1,0 +1,41 @@
+{
+    "x": 13.823372991,
+    "y": 50.956981511,
+    "orientations": [
+        128.27719492152687
+    ],
+    "sensors": {
+        "MachineData": {
+            "tankLevel": 0,
+            "engineLoad": 0,
+            "velocity": 0,
+            "engineSpeed": 0,
+            "frontPTO": 0,
+            "rearMidPTO": 0,
+            "mode": "off",
+            "SErrorCode1": 0
+        },
+        "GNSSData": {
+            "geoFencingStatus": "ok"
+        },
+        "HydraulicData": {
+            "forwardHydraulicPressureA": 19,
+            "forwardHydraulicPressureB": 6,
+            "reverseHydraulicPressureA": 8,
+            "reverseHydraulicPressureB": 7,
+            "workHydraulicPressure": 0,
+            "pilotStatus": "ok",
+            "oilTemperatureStatus": "error",
+            "oilLevelStatus": "error"
+        },
+        "ImplementsData": {
+            "nameImplementRear": "Implement A",
+            "heightImplementRear": 0,
+            "nameImplementFront": "Implement B",
+            "heightImplementFront": 0,
+            "nameImplementMiddle": "Implement C",
+            "heightImplementMiddle": 0,
+            "speedImplementMiddle": 0
+        }
+    }
+}
