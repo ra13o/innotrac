@@ -21,48 +21,132 @@ class AutonomousControlUnit(Node):
         self.current_cmd_vel = Twist()
         self.rear_pto_active = False
         self.front_pto_active = False
+        self.sending_cmd7 = False  # Flag to track if SCmd1 should send 7 instead of 0
+        self.nscmd1_active = False  # Flag to track if NSCmd1 is active
+        self.nscmd2_active = False  # Flag to track if NSCmd2 is active
+        
+        # Initialize current and target lifter heights dictionary
+        self.current_lifter_heights = {
+            'front': 0,
+            'middle': 0,
+            'rear': 0
+        }
+        self.target_lifter_heights = {
+            'front': None,
+            'middle': None,
+            'rear': None
+        }
 
-        # Timer to send messages at 100Hz
-        self.timer = self.create_timer(0.01, self.send_can_messages)  # 100Hz
+        # Initialize lifter request states
+        self.front_req = 0
+        self.middle_req = 0
+        self.rear_req = 0
+
+        # Lifter calibration limits with padding
+        self.lifter_limits = {
+            'front': (250, 699),
+            'middle': (120, 570),
+            'rear': (125, 542)
+        }
+        self.padding = 20  # Padding in mm
+
+        # Timer to ensure messages are sent at 100Hz
+        self.timer = self.create_timer(0.01, self.timer_callback)  # 0.01 seconds = 100Hz
+
+        # Timer to read CAN messages at 10ms intervals
+        self.can_read_timer = self.create_timer(0.01, self.read_can_messages)
 
     def cmd_vel_callback(self, msg):
         # Store the velocity command data
         self.current_cmd_vel = msg
-        self.message_received = True
+        self.sending_cmd7 = True  # Switch SCmd1 to send 7
+        self.nscmd1_active = True  # Enable NSCmd1
 
     def lifter_status_callback(self, msg):
         lifter_name = msg.lifter_name.lower()
-        height = int(msg.height)
-        lifter_active = 1 if msg.lifter_active else 0
+        target_height = int(msg.height)
+        min_height, max_height = self.lifter_limits[lifter_name]
 
-        # Map lifter names to the corresponding indices in the CAN message
-        if lifter_name == "front":
-            self.current_lifter_heights['front'] = height
-            self.front_req = lifter_active
-        elif lifter_name == "middle":
-            self.current_lifter_heights['middle'] = height
-            self.middle_req = lifter_active
-        elif lifter_name == "rear":
-            self.current_lifter_heights['rear'] = height
-            self.rear_req = lifter_active
+        # Apply padding to the min and max height limits
+        min_height_with_padding = min_height + self.padding
+        max_height_with_padding = max_height - self.padding
 
-    def send_can_messages(self):
-        # Check and send NSCmd1 (cmd_vel related)
-        if self.message_received:
-            self.send_trigger()
-            self.send_nscmd1(self.current_cmd_vel)
-            self.message_received = False
+        # Clamp the target height within the calibrated and padded limits
+        clamped_height = max(min_height_with_padding, min(target_height, max_height_with_padding))
+        self.target_lifter_heights[lifter_name] = clamped_height
 
-        # Check and send NSCmd2 (lifter status related)
-        self.send_trigger()
-        self.send_nscmd2()
+        self.get_logger().info(f"Setting target height for {lifter_name} to {clamped_height} (requested: {target_height})")
 
-    def send_nscmd1(self, msg):
-        # Process the /cmd_vel message and send NSCmd1
-        steer_angle = int(msg.angular.z * 100)  # Convert to centidegrees, multiplied by 100
-        velocity = int(msg.linear.x * 100)  # Convert velocity, multiplied by 100
-        engine_speed = 65535  # Engine speed is always set to max (0xFFFF)
+        self.lifter_active_request = msg.lifter_active
+        self.target_lifter = lifter_name
+        self.sending_cmd7 = True  # Switch SCmd1 to send 7
+        self.nscmd2_active = True  # Enable NSCmd2
 
+    def read_can_messages(self):
+        # Non-blocking read of CAN messages
+        msg = self.bus.recv(timeout=0.01)  # Timeout of 10ms
+        if msg is not None and msg.arbitration_id == 0x1a3:
+            self.nscmd3_callback(msg)
+
+    def nscmd3_callback(self, msg):
+        # Extract the current heights from NSStatus3 message
+        self.current_lifter_heights['front'] = (msg.data[0] | (msg.data[1] << 8))
+        self.current_lifter_heights['middle'] = (msg.data[2] | (msg.data[3] << 8))
+        self.current_lifter_heights['rear'] = (msg.data[4] | (msg.data[5] << 8))
+
+    def timer_callback(self):
+        # Send SCmd1 at 100Hz
+        if self.sending_cmd7:
+            self.send_trigger(7)
+        else:
+            self.send_trigger(0)
+        
+        # Check if NSCmd2 should be sent (wait for the target height to be reached)
+        if self.nscmd2_active:
+            if self.target_lifter_heights['front'] and abs(self.target_lifter_heights['front'] - self.current_lifter_heights['front']) <= self.padding:
+                self.front_req = 1
+            else:
+                self.front_req = 0
+            
+            if self.target_lifter_heights['middle'] and abs(self.target_lifter_heights['middle'] - self.current_lifter_heights['middle']) <= self.padding:
+                self.middle_req = 1
+            else:
+                self.middle_req = 0
+            
+            if self.target_lifter_heights['rear'] and abs(self.target_lifter_heights['rear'] - self.current_lifter_heights['rear']) <= self.padding:
+                self.rear_req = 1
+            else:
+                self.rear_req = 0
+
+            if self.front_req or self.middle_req or self.rear_req:
+                self.send_nscmd2()
+                self.nscmd2_active = False  # Reset NSCmd2 active flag after sending
+        
+        # Send NSCmd2 at 100Hz if active
+        if self.nscmd2_active:
+            # NSCmd2 has already been sent in lifter_status_callback
+            self.nscmd1_active = True  # After NSCmd2, enable NSCmd1
+
+        # Send NSCmd1 at 100Hz if active
+        if self.nscmd1_active and self.nscmd2_active:
+            self.send_merged_nscmd1()
+            self.send_nscmd2()
+        
+        elif self.nscmd1_active and not self.nscmd2_active:
+            self.send_merged_nscmd1()
+
+    def send_trigger(self, value=0):
+        # Send SCmd1 with the specified value (0 or 7)
+        trigger_msg = can.Message(
+            arbitration_id=257,  # 0x101 in decimal
+            data=[value],  # Data for triggering
+            is_extended_id=False
+        )
+        self.bus.send(trigger_msg)
+        self.get_logger().info(f"SCmd1 sent: {value}")
+
+    def send_merged_nscmd1(self):
+        # Create the merged NSCmd1 message
         can_data = [0] * 8
 
         # Extract and convert cmd_vel data
@@ -78,8 +162,8 @@ class AutonomousControlUnit(Node):
         can_data[3] = (velocity >> 8) & 0xFF  # MSB
 
         # EngSpdReq (Bits 32-47)
-        can_data[4] = 0xFF  # Always max engine speed (LSB)
-        can_data[5] = 0xFF  # Always max engine speed (MSB)
+        can_data[4] = 0x86  # Always max engine speed (LSB)
+        can_data[5] = 0x03  # Always max engine speed (MSB)
 
         # Control Bits (Bits 48-55)
         if steer_angle > 0:
@@ -92,11 +176,11 @@ class AutonomousControlUnit(Node):
         elif velocity < 0:
             can_data[6] |= (1 << 3)  # DrvDirBwdReq (bit 51)
 
-        # PTO Bits (52-53)
-        if self.front_pto_active:
-            can_data[6] |= (1 << 4)  # FrontPtoReq (bit 52)
-        if self.rear_pto_active:
+        # PTO Bits (52-53) based on the lifter being used
+        if self.target_lifter == 'middle' or self.target_lifter == 'rear':
             can_data[6] |= (1 << 5)  # RearPtoReq (bit 53)
+        elif self.target_lifter == 'front':
+            can_data[6] |= (1 << 4)  # FrontPtoReq (bit 52)
 
         # Prepare and send the CAN message
         can_msg = can.Message(
@@ -108,18 +192,8 @@ class AutonomousControlUnit(Node):
         self.bus.send(can_msg)
         self.get_logger().info(f"Merged NSCmd1 sent: {can_data}")
 
-    def send_trigger(self):
-        # Send trigger message for /cmd_vel
-        trigger_msg = can.Message(
-            arbitration_id=257,  # 0x101 in decimal
-            data=[7],  # Data for triggering
-            is_extended_id=False
-        )
-        self.bus.send(trigger_msg)
-        self.get_logger().info(f"Trigger message sent: {trigger_msg.data}")
-
-    def send_nscmd2(self):
-        # Process and send NSCmd2 based on current lifter heights and active states
+    def send_nscmd2(self, front_height=None, middle_height=None, rear_height=None):
+        # Process and send NSCmd2 based on lifter status
         can_data = [0] * 8
 
         if front_height is not None:
@@ -129,46 +203,24 @@ class AutonomousControlUnit(Node):
         if rear_height is not None:
             self.current_lifter_heights['rear'] = rear_height
 
-        can_data[0] = (self.current_lifter_heights['front'] >> 8) & 0xFF
-        can_data[1] = self.current_lifter_heights['front'] & 0xFF
-        can_data[2] = (self.current_lifter_heights['middle'] >> 8) & 0xFF
-        can_data[3] = self.current_lifter_heights['middle'] & 0xFF
-        can_data[4] = (self.current_lifter_heights['rear'] >> 8) & 0xFF
-        can_data[5] = self.current_lifter_heights['rear'] & 0xFF
+        # Correct the byte order: the lower byte first, higher byte second
+        can_data[0] = self.current_lifter_heights['front'] & 0xFF
+        can_data[1] = (self.current_lifter_heights['front'] >> 8) & 0xFF
+        can_data[2] = self.current_lifter_heights['middle'] & 0xFF
+        can_data[3] = (self.current_lifter_heights['middle'] >> 8) & 0xFF
+        can_data[4] = self.current_lifter_heights['rear'] & 0xFF
+        can_data[5] = (self.current_lifter_heights['rear'] >> 8) & 0xFF
 
-        # Fault requests based on the active lifter
+        # Fault requests based on the active lifter (Ensure these are set correctly)
         can_data[6] = (self.front_req << 2) | (self.middle_req << 1) | self.rear_req
 
-        can_msg = can.Message(arbitration_id=402, data=can_data, is_extended_id=False)
+        can_msg = can.Message(
+            arbitration_id=402, 
+            data=can_data, 
+            is_extended_id=False
+        )
         self.bus.send(can_msg)
         self.get_logger().info(f"NSCmd2 sent: {can_data}")
-
-    def monitor_height(self):
-        while True:
-            self.check_nsstatus3()
-            if self.target_lifter == 'middle' and self.current_lifter_heights['middle'] == 800:
-                self.middle_req = 1 if self.lifter_active_request else 0
-                self.send_nscmd2()  # Update height
-                self.monitor_lifter_activation()
-                break
-            self.get_logger().info(f"Waiting for middle lifter to reach 800... Current: {self.current_lifter_heights['middle']}")
-
-    def monitor_lifter_activation(self):
-        while True:
-            self.check_nsstatus3()
-            if self.middle_req == 1:  # If middle lifter is activated
-                break
-            self.get_logger().info("Waiting for middle lifter activation...")
-
-    def check_nsstatus3(self):
-        # This function reads NSStatus3 from the CAN bus and updates the current_lifter_heights
-        msg = self.bus.recv(timeout=0.1)  # Non-blocking call with timeout
-
-        if msg and msg.arbitration_id == 419:  # 0x1A3 in decimal
-            self.current_lifter_heights['front'] = (msg.data[1] << 8) | msg.data[0]
-            self.current_lifter_heights['middle'] = (msg.data[3] << 8) | msg.data[2]
-            self.current_lifter_heights['rear'] = (msg.data[5] << 8) | msg.data[4]
-            self.get_logger().info(f"Current lifter heights - Front: {self.current_lifter_heights['front']}, Middle: {self.current_lifter_heights['middle']}, Rear: {self.current_lifter_heights['rear']}")
 
 def main(args=None):
     rclpy.init(args=args)
