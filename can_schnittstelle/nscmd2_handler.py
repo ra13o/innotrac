@@ -29,4 +29,8 @@ def send_nscmd2(bus, cmd: NSCmd2):
         data = can_data,
         is_extended_id = False 
     )
-    bus.send(can_msg)
+    try:
+        bus.send(can_msg)
+        print(f"NSCmd2 sent: {can_data}")
+    except can.CanError as e:
+        print(f"Failed to send NSCmd1: {e}")
