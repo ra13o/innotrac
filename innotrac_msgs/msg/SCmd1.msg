@@ -1,0 +1,1 @@
+uint8 auto_mode_req     # length 3; start 0; value :0; 0x0: OFF; 0x7: ON

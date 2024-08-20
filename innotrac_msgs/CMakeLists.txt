@@ -12,8 +12,21 @@ find_package(rosidl_default_generators REQUIRED)
 
 # Specify the custom message files
 rosidl_generate_interfaces(${PROJECT_NAME}
-  "msg/LifterStatus.msg"  # Replace with your actual message file names
-  DEPENDENCIES std_msgs  # Add dependencies if your custom message depends on other packages
+  "msg/LifterStatus.msg"
+  "msg/NSCmd1.msg"
+  "msg/NSCmd2.msg"
+  "msg/NSCmd3.msg"
+  "msg/SCmd1.msg"
+  "msg/NSError1.msg"
+  "msg/NSError2.msg"
+  "msg/NSStatus1.msg"
+  "msg/NSStatus2.msg"
+  "msg/NSStatus3.msg"
+  "msg/NSStatus4.msg"
+  "msg/NSStatus5.msg"
+  "msg/SError1.msg"
+  "msg/SStatus1.msg"
+  DEPENDENCIES std_msgs  # dependencies of custom message depends on other packages
 )
 
 if(BUILD_TESTING)

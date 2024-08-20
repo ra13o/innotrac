@@ -1,0 +1,1 @@
+uint32 safety_error_code     # Error Code related to safety; 0: No Error; >0: Error 

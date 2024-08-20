@@ -1,0 +1,24 @@
+{
+  "configurations": [
+    {
+      "browse": {
+        "databaseFilename": "${default}",
+        "limitSymbolsToIncludedHeaders": false
+      },
+      "includePath": [
+        "/home/hyn10/innotrac_ws/install/innotrac_msgs/include/**",
+        "/opt/ros/humble/include/**",
+        "/home/hyn10/innotrac_ws/src/can_schnittstelle/include/**",
+        "/home/hyn10/innotrac_ws/src/innotrac_description/include/**",
+        "/home/hyn10/innotrac_ws/src/launches/include/**",
+        "/usr/include/**"
+      ],
+      "name": "ROS",
+      "intelliSenseMode": "gcc-x64",
+      "compilerPath": "/usr/bin/gcc",
+      "cStandard": "gnu11",
+      "cppStandard": "c++14"
+    }
+  ],
+  "version": 4
+}
