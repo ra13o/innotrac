@@ -27,7 +27,7 @@ class AutonomousControlUnit(Node):
         # State variables
         self.current_cmd_vel = Twist()
         self.lifter_status = LifterStatus()
-        self.sending_cmd7 = False
+        self.autonomous_mode_activated = False  # New flag to track activation of autonomous mode
         self.target_lifter_height = None
         self.lifter_active_request = False
         self.pto_activation = None
@@ -45,14 +45,14 @@ class AutonomousControlUnit(Node):
 
     def cmd_vel_callback(self, msg):
         self.current_cmd_vel = msg
-        self.sending_cmd7 = True
+        self.autonomous_mode_activated = True  # Activate autonomous mode when a cmd_vel message is received
 
     def lifter_status_callback(self, msg):
         lifter_name = msg.lifter_name.lower()
         target_height = self.clamp_lifter_height(lifter_name, msg.height)
         self.lifter_status = msg
         self.target_lifter_height = target_height
-        self.sending_cmd7 = True
+        self.autonomous_mode_activated = True  # Activate autonomous mode when a power_lifter message is received
         self.height_check_active = True  # Start height checking
 
         # Determine PTO activation
@@ -71,11 +71,14 @@ class AutonomousControlUnit(Node):
         return max(limits['min'], min(limits['max'], height))
 
     def timer_callback(self):
-        # Always send SCmd1[7] to maintain auto mode
-        send_scmd1(self.bus, 7)
+        # Send SCmd1[7] to maintain auto mode if activated
+        if self.autonomous_mode_activated:
+            send_scmd1(self.bus, 7)
+        else:
+            send_scmd1(self.bus, 0)
 
         # Handle NSCmd1 (movement) if cmd_vel was received
-        if self.sending_cmd7:
+        if self.autonomous_mode_activated:
             self.send_nscmd1()
 
         # Handle NSCmd2 (lifter control) if power_lifter was received
@@ -87,7 +90,7 @@ class AutonomousControlUnit(Node):
         nscmd1_msg = NSCmd1()
         nscmd1_msg.steer_ang_magn = int(self.current_cmd_vel.angular.z * 100)  # Convert to centidegrees
         nscmd1_msg.drv_spd_magn = int(self.current_cmd_vel.linear.x * 100)  # Convert to cm/s
-        nscmd1_msg.eng_spd = 0x0386 # Example fixed engine speed (1000 RPM)
+        nscmd1_msg.eng_spd = 0x03E8  # Example fixed engine speed (1000 RPM)
         nscmd1_msg.steer_dir_le = self.current_cmd_vel.angular.z > 0
         nscmd1_msg.steer_dir_ri = self.current_cmd_vel.angular.z < 0
         nscmd1_msg.drv_dir_fwd = self.current_cmd_vel.linear.x > 0
@@ -118,9 +121,19 @@ class AutonomousControlUnit(Node):
     def check_lifter_height(self):
         lifter_name = self.lifter_status.lifter_name.lower()
         current_height = self.nsstatus3_handler.get_lifter_heights()[lifter_name]
+        
+        # Log the current and target height for debugging
+        self.get_logger().info(f"Checking height for {lifter_name}: current={current_height}, target={self.target_lifter_height}")
+        
+        # Check if the current height is within the 10mm tolerance range
         if abs(current_height - self.target_lifter_height) <= 10:
             self.lifter_active_request = True
             self.height_check_active = False  # Stop checking height once within range
+            self.get_logger().info(f"{lifter_name.capitalize()} lifter reached target height: {current_height}mm")
+        else:
+            self.get_logger().info(f"{lifter_name.capitalize()} lifter has not yet reached target height: {current_height}mm")
+            self.lifter_active_request = False
+
 
 def main(args=None):
     rclpy.init(args=args)

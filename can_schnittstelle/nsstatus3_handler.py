@@ -1,60 +1,84 @@
 #!/usr/bin/env python3
 
 import can
+import threading
+from typing import Dict, Optional
+import time
 
 class NSStatus3Handler:
-    def __init__(self):
-        self.front_lifter_height = 0
-        self.middle_lifter_height = 0
-        self.rear_lifter_height = 0
-        self.engine_speed = 0
+    def __init__(self, channel: str = 'can0', bustype: str = 'socketcan', bitrate: int = 500000):
+        """
+        Initializes the NSStatus3Handler and starts listening on the CAN bus for NSStatus3 messages.
 
-    def parse_nsstatus3(self, msg):
+        :param channel: The CAN interface channel (e.g., 'can0').
+        :param bustype: The type of CAN interface being used (default is 'socketcan').
+        :param bitrate: The bitrate of the CAN bus (default is 500000).
+        """
+        self.front_lifter_height: int = 0
+        self.middle_lifter_height: int = 0
+        self.rear_lifter_height: int = 0
+        self.engine_speed: int = 0
+
+        self._lock = threading.Lock()
+        self._stop_event = threading.Event()
+
+        # Set up the CAN bus
+        self.bus = can.interface.Bus(channel=channel, bustype=bustype, bitrate=bitrate)
+
+        # Start the listener thread
+        self._listener_thread = threading.Thread(target=self._listen_to_can_bus, daemon=True)
+        self._listener_thread.start()
+
+        # Wait for a short period to allow processing of initial messages
+        time.sleep(0.1)  # Adjust the sleep time if needed
+
+    def _listen_to_can_bus(self):
+        """
+        Listens to the CAN bus for messages with arbitration ID 419 (0x1A3) and parses them.
+        """
+        while not self._stop_event.is_set():
+            msg = self.bus.recv(timeout=1)  # Wait for a message
+            if msg and msg.arbitration_id == 419:  # 0x1A3
+                self.parse_nsstatus3(msg)
+
+    def parse_nsstatus3(self, msg: can.Message):
         """
         Parses the NSStatus3 CAN message and updates the lifter heights and engine speed.
 
-        Parameters:
-        - msg: The CAN message (expected to be an NSStatus3 message).
+        :param msg: The CAN message (expected to be an NSStatus3 message with ID 419).
         """
-        if msg.arbitration_id != 419: # 0x1A3 in decimal
-            raise ValueError(f"Unexpected CAN message ID: {msg.arbitration_id}")
+        with self._lock:
+            self.front_lifter_height = (msg.data[1] << 8) | msg.data[0]
+            self.middle_lifter_height = (msg.data[3] << 8) | msg.data[2]
+            self.rear_lifter_height = (msg.data[5] << 8) | msg.data[4]
+            self.engine_speed = (msg.data[7] << 8) | msg.data[6]
 
-        # Extract the front lifter height (2 bytes)
-        self.front_lifter_height = (msg.data[1] << 8) | msg.data[0]
-
-        # Extract the middle lifter height (2 bytes)
-        self.middle_lifter_height = (msg.data[3] << 8) | msg.data[2]
-
-        # Extract the rear lifter height (2 bytes)
-        self.rear_lifter_height = (msg.data[5] << 8) | msg.data[4]
-
-        # Extract the engine speed (2 bytes)
-        self.engine_speed = (msg.data[7] << 8) | msg.data[6]
-
-        # Print or log the extracted values for debugging
-        print(f"Front Lifter Height: {self.front_lifter_height} mm")
-        print(f"Middle Lifter Height: {self.middle_lifter_height} mm")
-        print(f"Rear Lifter Height: {self.rear_lifter_height} mm")
-        print(f"Engine Speed: {self.engine_speed} RPM")
-
-    def get_lifter_heights(self):
+    def get_lifter_heights(self) -> Dict[str, int]:
         """
         Returns the current heights of the front, middle, and rear lifters.
 
-        Returns:
-        - A dictionary with the current lifter heights.
+        :return: A dictionary with the current lifter heights.
         """
-        return {
-            "front": self.front_lifter_height,
-            "middle": self.middle_lifter_height,
-            "rear": self.rear_lifter_height,
-        }
+        with self._lock:
+            return {
+                "front": self.front_lifter_height,
+                "middle": self.middle_lifter_height,
+                "rear": self.rear_lifter_height,
+            }
 
-    def get_engine_speed(self):
+    def get_engine_speed(self) -> int:
         """
         Returns the current engine speed.
 
-        Returns:
-        - The engine speed in RPM.
+        :return: The engine speed in RPM.
         """
-        return self.engine_speed
+        with self._lock:
+            return self.engine_speed
+
+    def stop(self):
+        """
+        Stops the CAN bus listener and cleans up resources.
+        """
+        self._stop_event.set()
+        self._listener_thread.join()
+        self.bus.shutdown()
