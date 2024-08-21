@@ -27,11 +27,14 @@ class AutonomousControlUnit(Node):
         # State variables
         self.current_cmd_vel = Twist()
         self.lifter_status = LifterStatus()
-        self.autonomous_mode_activated = False  # New flag to track activation of autonomous mode
+        self.autonomous_mode_activated = False
         self.target_lifter_height = None
         self.lifter_active_request = False
         self.pto_activation = None
         self.height_check_active = False
+        self.nscmd1_active = False
+        self.nscmd2_active = False
+        self.lifter_adjusting = False
 
         # Lifter calibration ranges
         self.lifter_limits = {
@@ -46,22 +49,29 @@ class AutonomousControlUnit(Node):
     def cmd_vel_callback(self, msg):
         self.current_cmd_vel = msg
         self.autonomous_mode_activated = True  # Activate autonomous mode when a cmd_vel message is received
+        self.nscmd1_active = True  # Ensure NSCmd1 is active
 
     def lifter_status_callback(self, msg):
         lifter_name = msg.lifter_name.lower()
         target_height = self.clamp_lifter_height(lifter_name, msg.height)
         self.lifter_status = msg
-        self.target_lifter_height = target_height
-        self.autonomous_mode_activated = True  # Activate autonomous mode when a power_lifter message is received
-        self.height_check_active = True  # Start height checking
+        
+        # If height is different, deactivate PTO and lifter float, then move to the desired height
+        if target_height != self.target_lifter_height:
+            self.pto_activation = None  # Deactivate PTO
+            self.lifter_active_request = False  # Deactivate lifter float
+            self.height_check_active = True  # Start height checking
+            self.lifter_adjusting = True  # Lifter is in the process of adjusting height
 
-        # Determine PTO activation
+        self.target_lifter_height = target_height
+        self.autonomous_mode_activated = True  # Ensure autonomous mode is active
+        self.nscmd2_active = True  # Ensure NSCmd2 is active
+
+        # Determine PTO activation after height adjustment
         if lifter_name in ['middle', 'rear']:
             self.pto_activation = 'rear'
         elif lifter_name == 'front':
             self.pto_activation = 'front'
-        else:
-            self.pto_activation = None
 
     def clamp_lifter_height(self, lifter_name, height):
         """
@@ -71,18 +81,19 @@ class AutonomousControlUnit(Node):
         return max(limits['min'], min(limits['max'], height))
 
     def timer_callback(self):
-        # Send SCmd1[7] to maintain auto mode if activated
-        if self.autonomous_mode_activated:
+        # Maintain auto mode by sending SCmd1[7] at 100Hz if any operation is active
+        if self.autonomous_mode_activated or self.nscmd1_active or self.nscmd2_active:
             send_scmd1(self.bus, 7)
         else:
             send_scmd1(self.bus, 0)
+            self.autonomous_mode_activated = False
 
         # Handle NSCmd1 (movement) if cmd_vel was received
-        if self.autonomous_mode_activated:
+        if self.nscmd1_active:
             self.send_nscmd1()
 
         # Handle NSCmd2 (lifter control) if power_lifter was received
-        if self.height_check_active and self.target_lifter_height is not None:
+        if self.nscmd2_active and self.target_lifter_height is not None:
             self.check_lifter_height()
             self.send_nscmd2()
 
@@ -129,11 +140,11 @@ class AutonomousControlUnit(Node):
         if abs(current_height - self.target_lifter_height) <= 10:
             self.lifter_active_request = True
             self.height_check_active = False  # Stop checking height once within range
+            self.lifter_adjusting = False  # Lifter adjustment complete
             self.get_logger().info(f"{lifter_name.capitalize()} lifter reached target height: {current_height}mm")
         else:
             self.get_logger().info(f"{lifter_name.capitalize()} lifter has not yet reached target height: {current_height}mm")
             self.lifter_active_request = False
-
 
 def main(args=None):
     rclpy.init(args=args)
