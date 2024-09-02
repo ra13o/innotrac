@@ -1,0 +1,10 @@
+sudo apt install ros-humble-robot-localization
+# ros-humble-mapviz
+# ros-humble-mapviz-plugins
+# ros-humble-tile-map
+pip install setuptools==58.2.0
+# Fixposition dependencies
+sudo apt update
+sudo apt install -y build-essential cmake
+sudo apt install -y libeigen3-dev
+sudo apt install -y libboost-date-time-dev
