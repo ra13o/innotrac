@@ -10,7 +10,7 @@ ekf_filter_node_odom:
 
     map_frame: map
     odom_frame: odom
-    base_link_frame: base_footprint # the frame id used by the turtlebot's diff drive plugin
+    base_link_frame: base_footprint # reference point in innotrac
     world_frame: odom
 
     odom0: odom
@@ -119,8 +119,8 @@ navsat_transform:
     frequency: 30.0
     delay: 3.0
     magnetic_declination_radians: 0.0
-    yaw_offset: 0.0
-    zero_altitude: true
+    yaw_offset: 0.0 # as per imu in gps device. Usually 0-->East and 90-->North
+    zero_altitude: true # for 2d mode
     broadcast_utm_transform: true
     publish_filtered_gps: true
     use_odometry_yaw: true
